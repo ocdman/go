@@ -208,7 +208,7 @@ func DialUDP(network string, laddr, raddr *UDPAddr) (*UDPConn, error) {
 	if raddr == nil {
 		return nil, &OpError{Op: "dial", Net: network, Source: laddr.opAddr(), Addr: nil, Err: errMissingAddress}
 	}
-	c, err := dialUDP(context.Background(), network, laddr, raddr)
+	c, err := dialUDP(context.Background(), network, laddr, raddr, nil)
 	if err != nil {
 		return nil, &OpError{Op: "dial", Net: network, Source: laddr.opAddr(), Addr: raddr.opAddr(), Err: err}
 	}
@@ -225,6 +225,10 @@ func DialUDP(network string, laddr, raddr *UDPAddr) (*UDPConn, error) {
 // If the Port field of laddr is 0, a port number is automatically
 // chosen.
 func ListenUDP(network string, laddr *UDPAddr) (*UDPConn, error) {
+	return ListenUDPControl(network, laddr, nil)
+}
+
+func ListenUDPControl(network string, laddr *UDPAddr, control ControlFunc) (*UDPConn, error) {
 	switch network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -233,7 +237,7 @@ func ListenUDP(network string, laddr *UDPAddr) (*UDPConn, error) {
 	if laddr == nil {
 		laddr = &UDPAddr{}
 	}
-	c, err := listenUDP(context.Background(), network, laddr)
+	c, err := listenUDP(context.Background(), network, laddr, control)
 	if err != nil {
 		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: laddr.opAddr(), Err: err}
 	}
@@ -266,7 +270,7 @@ func ListenMulticastUDP(network string, ifi *Interface, gaddr *UDPAddr) (*UDPCon
 	if gaddr == nil || gaddr.IP == nil {
 		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: gaddr.opAddr(), Err: errMissingAddress}
 	}
-	c, err := listenMulticastUDP(context.Background(), network, ifi, gaddr)
+	c, err := listenMulticastUDP(context.Background(), network, ifi, gaddr, nil)
 	if err != nil {
 		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: gaddr.opAddr(), Err: err}
 	}
