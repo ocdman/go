@@ -35,6 +35,7 @@ type clientHelloMsg struct {
 	psks                         []psk
 	pskKeyExchangeModes          []uint8
 	earlyData                    bool
+	dummyPQPaddingLen            uint16
 }
 
 func (m *clientHelloMsg) equal(i interface{}) bool {
@@ -63,7 +64,8 @@ func (m *clientHelloMsg) equal(i interface{}) bool {
 		eqStrings(m.alpnProtocols, m1.alpnProtocols) &&
 		eqKeyShares(m.keyShares, m1.keyShares) &&
 		eqUint16s(m.supportedVersions, m1.supportedVersions) &&
-		m.earlyData == m1.earlyData
+		m.earlyData == m1.earlyData &&
+		m.dummyPQPaddingLen == m1.dummyPQPaddingLen
 }
 
 func (m *clientHelloMsg) marshal() []byte {
@@ -131,6 +133,10 @@ func (m *clientHelloMsg) marshal() []byte {
 		numExtensions++
 	}
 	if m.earlyData {
+		numExtensions++
+	}
+	if m.dummyPQPaddingLen > 0 {
+		extensionsLength += int(m.dummyPQPaddingLen)
 		numExtensions++
 	}
 	if numExtensions > 0 {
@@ -360,6 +366,13 @@ func (m *clientHelloMsg) marshal() []byte {
 		z[0] = byte(extensionEarlyData >> 8)
 		z[1] = byte(extensionEarlyData)
 		z = z[4:]
+	}
+	if m.dummyPQPaddingLen > 0 {
+		z[0] = byte(extensionDummyPQPadding >> 8)
+		z[1] = byte(extensionDummyPQPadding & 0xff)
+		z[2] = byte(m.dummyPQPaddingLen >> 8)
+		z[3] = byte(m.dummyPQPaddingLen)
+		z = z[5+m.dummyPQPaddingLen:]
 	}
 
 	m.raw = x
@@ -693,6 +706,11 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 		case extensionEarlyData:
 			// https://tools.ietf.org/html/draft-ietf-tls-tls13-18#section-4.2.8
 			m.earlyData = true
+		case extensionDummyPQPadding:
+			if length < 2 {
+				return alertDecodeError
+			}
+			m.dummyPQPaddingLen = uint16(data[0])<<8 | uint16(data[1])
 		}
 		data = data[length:]
 		bindersOffset += length
@@ -721,6 +739,8 @@ type serverHelloMsg struct {
 	keyShare    keyShare
 	psk         bool
 	pskIdentity uint16
+
+	dummyPQPaddingLen uint16
 }
 
 func (m *serverHelloMsg) equal(i interface{}) bool {
@@ -754,7 +774,8 @@ func (m *serverHelloMsg) equal(i interface{}) bool {
 		m.keyShare.group == m1.keyShare.group &&
 		bytes.Equal(m.keyShare.data, m1.keyShare.data) &&
 		m.psk == m1.psk &&
-		m.pskIdentity == m1.pskIdentity
+		m.pskIdentity == m1.pskIdentity &&
+		m.dummyPQPaddingLen == m1.dummyPQPaddingLen
 }
 
 func (m *serverHelloMsg) marshal() []byte {
@@ -762,12 +783,7 @@ func (m *serverHelloMsg) marshal() []byte {
 		return m.raw
 	}
 
-	oldTLS13Draft := m.vers >= VersionTLS13Draft18 && m.vers <= VersionTLS13Draft21
 	length := 38 + len(m.sessionId)
-	if oldTLS13Draft {
-		// no compression method, no session ID.
-		length = 36
-	}
 	numExtensions := 0
 	extensionsLength := 0
 
@@ -813,6 +829,10 @@ func (m *serverHelloMsg) marshal() []byte {
 		extensionsLength += 2
 		numExtensions++
 	}
+	if m.dummyPQPaddingLen > 0 {
+		extensionsLength += int(m.dummyPQPaddingLen)
+		numExtensions++
+	}
 	// supported_versions extension
 	if m.vers >= VersionTLS13 {
 		extensionsLength += 2
@@ -837,21 +857,13 @@ func (m *serverHelloMsg) marshal() []byte {
 		x[5] = uint8(m.vers)
 	}
 	copy(x[6:38], m.random)
-	z := x[38:]
-	if !oldTLS13Draft {
-		x[38] = uint8(len(m.sessionId))
-		copy(x[39:39+len(m.sessionId)], m.sessionId)
-		z = x[39+len(m.sessionId):]
-	}
+	x[38] = uint8(len(m.sessionId))
+	copy(x[39:39+len(m.sessionId)], m.sessionId)
+	z := x[39+len(m.sessionId):]
 	z[0] = uint8(m.cipherSuite >> 8)
 	z[1] = uint8(m.cipherSuite)
-	if oldTLS13Draft {
-		// no compression method in older TLS 1.3 drafts.
-		z = z[2:]
-	} else {
-		z[2] = m.compressionMethod
-		z = z[3:]
-	}
+	z[2] = m.compressionMethod
+	z = z[3:]
 
 	if numExtensions > 0 {
 		z[0] = byte(extensionsLength >> 8)
@@ -959,6 +971,15 @@ func (m *serverHelloMsg) marshal() []byte {
 		z = z[6:]
 	}
 
+	if m.dummyPQPaddingLen > 0 {
+		z[0] = byte(extensionDummyPQPadding >> 8)
+		z[1] = byte(extensionDummyPQPadding & 0xff)
+		z[3] = 2
+		z[4] = byte(m.dummyPQPaddingLen >> 8)
+		z[5] = byte(m.dummyPQPaddingLen)
+		z = z[6+m.dummyPQPaddingLen:]
+	}
+
 	m.raw = x
 
 	return x
@@ -970,29 +991,19 @@ func (m *serverHelloMsg) unmarshal(data []byte) alert {
 	}
 	m.raw = data
 	m.vers = uint16(data[4])<<8 | uint16(data[5])
-	oldTLS13Draft := m.vers >= VersionTLS13Draft18 && m.vers <= VersionTLS13Draft21
 	m.random = data[6:38]
-	if !oldTLS13Draft {
-		sessionIdLen := int(data[38])
-		if sessionIdLen > 32 || len(data) < 39+sessionIdLen {
-			return alertDecodeError
-		}
-		m.sessionId = data[39 : 39+sessionIdLen]
-		data = data[39+sessionIdLen:]
-	} else {
-		data = data[38:]
+	sessionIdLen := int(data[38])
+	if sessionIdLen > 32 || len(data) < 39+sessionIdLen {
+		return alertDecodeError
 	}
+	m.sessionId = data[39 : 39+sessionIdLen]
+	data = data[39+sessionIdLen:]
 	if len(data) < 3 {
 		return alertDecodeError
 	}
 	m.cipherSuite = uint16(data[0])<<8 | uint16(data[1])
-	if oldTLS13Draft {
-		// no compression method in older TLS 1.3 drafts.
-		data = data[2:]
-	} else {
-		m.compressionMethod = data[2]
-		data = data[3:]
-	}
+	m.compressionMethod = data[2]
+	data = data[3:]
 
 	m.nextProtoNeg = false
 	m.nextProtos = nil
@@ -1004,6 +1015,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) alert {
 	m.keyShare.data = nil
 	m.psk = false
 	m.pskIdentity = 0
+	m.dummyPQPaddingLen = 0
 
 	if len(data) == 0 {
 		// ServerHello is optionally followed by extension data
@@ -1141,6 +1153,11 @@ func (m *serverHelloMsg) unmarshal(data []byte) alert {
 			}
 			m.psk = true
 			m.pskIdentity = uint16(data[0])<<8 | uint16(data[1])
+		case extensionDummyPQPadding:
+			if length != 2 {
+				return alertDecodeError
+			}
+			m.dummyPQPaddingLen = uint16(data[0])<<8 | uint16(data[1])
 		}
 		data = data[length:]
 	}
