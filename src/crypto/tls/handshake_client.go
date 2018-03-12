@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"crypto/ed25519"
 )
 
 type clientHandshakeState struct {
@@ -321,7 +323,7 @@ func (hs *clientHandshakeState) processCertsFromServer(certificates [][]byte) er
 	}
 
 	switch certs[0].PublicKey.(type) {
-	case *rsa.PublicKey, *ecdsa.PublicKey:
+	case *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey:
 		break
 	default:
 		c.sendAlert(alertUnsupportedCertificate)

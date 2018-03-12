@@ -167,6 +167,7 @@ const (
 	signaturePKCS1v15 uint8 = iota + 1
 	signatureECDSA
 	signatureRSAPSS
+	signatureEd25519
 )
 
 // supportedSignatureAlgorithms contains the signature and hash algorithms that
@@ -185,8 +186,9 @@ var supportedSignatureAlgorithms = []SignatureScheme{
 }
 
 // supportedSignatureAlgorithms13 lists the advertised signature algorithms
-// allowed for digital signatures. It includes TLS 1.2 + PSS.
+// allowed for digital signatures. It includes TLS 1.2 + PSS + Ed25519.
 var supportedSignatureAlgorithms13 = []SignatureScheme{
+	Ed25519,
 	PSSWithSHA256,
 	PKCS1WithSHA256,
 	ECDSAWithP256AndSHA256,
@@ -289,6 +291,8 @@ const (
 	ECDSAWithP256AndSHA256 SignatureScheme = 0x0403
 	ECDSAWithP384AndSHA384 SignatureScheme = 0x0503
 	ECDSAWithP521AndSHA512 SignatureScheme = 0x0603
+
+	Ed25519 SignatureScheme = 0x0807
 
 	// Legacy signature and hash algorithms for TLS 1.2.
 	ECDSAWithSHA1 SignatureScheme = 0x0203
@@ -977,9 +981,9 @@ type Certificate struct {
 	Certificate [][]byte
 	// PrivateKey contains the private key corresponding to the public key
 	// in Leaf. For a server, this must implement crypto.Signer and/or
-	// crypto.Decrypter, with an RSA or ECDSA PublicKey. For a client
+	// crypto.Decrypter, with an RSA, ECDSA or Ed25519 PublicKey. For a client
 	// (performing client authentication), this must be a crypto.Signer
-	// with an RSA or ECDSA PublicKey.
+	// with an RSA, ECDSA or Ed25519 PublicKey.
 	PrivateKey crypto.PrivateKey
 	// OCSPStaple contains an optional OCSP response which will be served
 	// to clients that request it.
@@ -1187,6 +1191,8 @@ func signatureFromSignatureScheme(signatureAlgorithm SignatureScheme) uint8 {
 		return signatureRSAPSS
 	case ECDSAWithSHA1, ECDSAWithP256AndSHA256, ECDSAWithP384AndSHA384, ECDSAWithP521AndSHA512:
 		return signatureECDSA
+	case Ed25519:
+		return signatureEd25519
 	default:
 		return 0
 	}
