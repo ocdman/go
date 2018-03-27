@@ -40,9 +40,12 @@ func (zeroSource) Read(b []byte) (n int, err error) {
 var testConfig *Config
 
 func allCipherSuites() []uint16 {
-	ids := make([]uint16, len(cipherSuites))
-	for i, suite := range cipherSuites {
-		ids[i] = suite.id
+	var ids []uint16
+	for _, suite := range cipherSuites {
+		if suite.flags&suiteTLS13 != 0 {
+			continue
+		}
+		ids = append(ids, suite.id)
 	}
 
 	return ids
@@ -232,7 +235,7 @@ func TestRenegotiationExtension(t *testing.T) {
 	var serverHello serverHelloMsg
 	// unmarshal expects to be given the handshake header, but
 	// serverHelloLen doesn't include it.
-	if !serverHello.unmarshal(buf[5 : 9+serverHelloLen]) {
+	if serverHello.unmarshal(buf[5:9+serverHelloLen]) != alertSuccess {
 		t.Fatalf("Failed to parse ServerHello")
 	}
 
@@ -910,7 +913,7 @@ func TestHandshakeServerEmptyCertificates(t *testing.T) {
 	testClientHelloFailure(t, serverConfig, clientHello, "no certificates")
 }
 
-// TestCipherSuiteCertPreferance ensures that we select an RSA ciphersuite with
+// TestCipherSuiteCertPreference ensures that we select an RSA ciphersuite with
 // an RSA certificate and an ECDSA ciphersuite with an ECDSA certificate.
 func TestCipherSuiteCertPreferenceECDSA(t *testing.T) {
 	config := testConfig.Clone()
@@ -1256,7 +1259,7 @@ var getConfigForClientTests = []struct {
 			config.MaxVersion = VersionTLS11
 			return config, nil
 		},
-		"version 301 when expecting version 302",
+		"protocol version not supported",
 		nil,
 	},
 	{

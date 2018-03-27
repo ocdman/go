@@ -64,12 +64,12 @@ func (i opensslInput) Read(buf []byte) (n int, err error) {
 }
 
 // opensslOutputSink is an io.Writer that receives the stdout and stderr from
-// an `openssl` process and sends a value to handshakeComplete when it sees a
+// an `openssl` process and sends a value to handshakeConfirmed when it sees a
 // log message from a completed server handshake.
 type opensslOutputSink struct {
-	handshakeComplete chan struct{}
-	all               []byte
-	line              []byte
+	handshakeConfirmed chan struct{}
+	all                []byte
+	line               []byte
 }
 
 func newOpensslOutputSink() *opensslOutputSink {
@@ -91,7 +91,7 @@ func (o *opensslOutputSink) Write(data []byte) (n int, err error) {
 		}
 
 		if bytes.Equal([]byte(opensslEndOfHandshake), o.line[:i]) {
-			o.handshakeComplete <- struct{}{}
+			o.handshakeConfirmed <- struct{}{}
 		}
 		o.line = o.line[i+1:]
 	}
@@ -315,9 +315,9 @@ func (test *clientTest) run(t *testing.T, write bool) {
 
 		for i := 1; i <= test.numRenegotiations; i++ {
 			// The initial handshake will generate a
-			// handshakeComplete signal which needs to be quashed.
+			// handshakeConfirmed signal which needs to be quashed.
 			if i == 1 && write {
-				<-stdout.handshakeComplete
+				<-stdout.handshakeConfirmed
 			}
 
 			// OpenSSL will try to interleave application data and
@@ -364,7 +364,7 @@ func (test *clientTest) run(t *testing.T, write bool) {
 			}()
 
 			if write && test.renegotiationExpectedToFail != i {
-				<-stdout.handshakeComplete
+				<-stdout.handshakeConfirmed
 				stdin <- opensslSendSentinel
 			}
 			<-signalChan
@@ -866,7 +866,7 @@ func TestHandshakeClientALPNMatch(t *testing.T) {
 // sctsBase64 contains data from `openssl s_client -serverinfo 18 -connect ritter.vg:443`
 const sctsBase64 = "ABIBaQFnAHUApLkJkLQYWBSHuxOizGdwCjw1mAT5G9+443fNDsgN3BAAAAFHl5nuFgAABAMARjBEAiAcS4JdlW5nW9sElUv2zvQyPoZ6ejKrGGB03gjaBZFMLwIgc1Qbbn+hsH0RvObzhS+XZhr3iuQQJY8S9G85D9KeGPAAdgBo9pj4H2SCvjqM7rkoHUz8cVFdZ5PURNEKZ6y7T0/7xAAAAUeX4bVwAAAEAwBHMEUCIDIhFDgG2HIuADBkGuLobU5a4dlCHoJLliWJ1SYT05z6AiEAjxIoZFFPRNWMGGIjskOTMwXzQ1Wh2e7NxXE1kd1J0QsAdgDuS723dc5guuFCaR+r4Z5mow9+X7By2IMAxHuJeqj9ywAAAUhcZIqHAAAEAwBHMEUCICmJ1rBT09LpkbzxtUC+Hi7nXLR0J+2PmwLp+sJMuqK+AiEAr0NkUnEVKVhAkccIFpYDqHOlZaBsuEhWWrYpg2RtKp0="
 
-func TestHandshakClientSCTs(t *testing.T) {
+func TestHandshakeClientSCTs(t *testing.T) {
 	config := testConfig.Clone()
 
 	scts, err := base64.StdEncoding.DecodeString(sctsBase64)
@@ -1024,7 +1024,7 @@ func TestHostnameInSNI(t *testing.T) {
 		s.Close()
 
 		var m clientHelloMsg
-		if !m.unmarshal(record) {
+		if m.unmarshal(record) != alertSuccess {
 			t.Errorf("unmarshaling ClientHello for %q failed", tt.in)
 			continue
 		}
